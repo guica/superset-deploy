@@ -76,6 +76,7 @@ USO_ID = upsert_dataset("mat_uso_semanal", read_sql("dataset_mat_uso_semanal.sql
 SEN_ID = upsert_dataset("mat_sentry_semanal", read_sql("dataset_mat_sentry_semanal.sql"), main_dttm="SEMANA_TS")
 PLA_ID = upsert_dataset("mat_placar", read_sql("dataset_mat_placar.sql"))
 MOV_ID = upsert_dataset("mat_movimento", read_sql("dataset_mat_movimento.sql"), main_dttm="SEMANA_TS")
+REW_ID = upsert_dataset("mat_retrabalho", read_sql("dataset_mat_retrabalho.sql"))
 
 
 # ── Helpers de form_data ────────────────────────────────────────────────────
@@ -171,9 +172,11 @@ SIT_COLORS = [
 ]
 FMT_SIT = [{"colorScheme": c, "column": "SITUACAO", "operator": "=", "targetValue": v} for v, c in SIT_COLORS]
 
-PLACAR_COLS = ["APP_LABEL", "DOMINIO", "SITUACAO", "PRS_90D", "FIX_90D", "FEAT_90D", "PRS_6SEM", "FIX_PCT_6SEM",
-               "FIX_DELTA_PP", "ACESSOS_90D", "ACESSOS_6SEM", "USO_DELTA_PCT", "CLIENTES_90D", "ULTIMO_ACESSO",
-               "PRS_POR_1K", "FIX_POR_1K", "ERROS_30D", "ERROS_POR_1K", "TITULO_PCT"]
+PLACAR_COLS = ["APP_LABEL", "DOMINIO", "SITUACAO", "PRS_90D", "FIX_90D", "FEAT_90D", "PRS_6SEM", "PRS_DELTA_PCT",
+               "FIX_PCT_6SEM", "FIX_DELTA_PP", "ACESSOS_90D", "ACESSOS_6SEM", "USO_DELTA_PCT", "CLIENTES_90D",
+               "ULTIMO_ACESSO", "PRS_POR_1K", "FIX_POR_1K", "ERROS_30D", "ERROS_POR_1K", "ERROS_DELTA_PCT",
+               "LINHAS_90D", "TESTE_PCT", "TITULO_PCT"]
+PCT = {"d3NumberFormat": ",d"}
 
 charts = {
     # KPIs
@@ -202,6 +205,9 @@ charts = {
         ["APP_LABEL", "SITUACAO", "PRS_90D", "ACESSOS_90D", "CLIENTES_90D", "PRS_POR_1K", "FIX_POR_1K"], "PRS_POR_1K",
         filters=[sqlf("PRS_POR_1K IS NOT NULL")], col_cfg={"PRS_90D": INT, "ACESSOS_90D": INT, "PRS_POR_1K": DEC, "FIX_POR_1K": DEC},
         fmt=FMT_SIT)),
+    "linhas_app": ("Maturidade · Linhas alteradas por app (90d)", PLA_ID,
+                   hbar("APP_LABEL", m("MAX(LINHAS_90D)", "Linhas alteradas"), [sqlf("LINHAS_90D > 0")], "ULTIMO_ACESSO",
+                        extra={"y_axis_format": ",d"})),
     "sem_uso": ("Maturidade · PRs em apps sem uso em produção (90d)", PLA_ID, table_raw(
         ["APP_LABEL", "DOMINIO", "PRS_90D", "FIX_90D", "FEAT_90D", "ACESSOS_90D", "ULTIMO_ACESSO"], "PRS_90D",
         filters=[sqlf("SITUACAO IN ('Sem uso', 'Inativo') AND PRS_90D > 0")], col_cfg={"PRS_90D": INT})),
@@ -221,6 +227,19 @@ charts = {
             {"colorScheme": "#E04355", "column": "FIX_DELTA_PP", "operator": ">", "targetValue": 5},
             {"colorScheme": "#5AC189", "column": "USO_DELTA_PCT", "operator": ">", "targetValue": 10},
         ])),
+    "melhorando": ("Maturidade · Quem está melhorando · Δ uso × Δ conserto", PLA_ID, {
+        "viz_type": "bubble_v2", "entity": "APP_LABEL", "series": "SITUACAO",
+        "x": m("MAX(USO_DELTA_PCT)", "Δ uso % (3 sem vs 3 anteriores)"), "y": m("MAX(FIX_DELTA_PP)", "Δ conserto pp"),
+        "size": m("MAX(ACESSOS_90D)", "Acessos 90d"), "adhoc_filters": [sqlf("USO_DELTA_PCT IS NOT NULL AND FIX_DELTA_PP IS NOT NULL AND ACESSOS_3A + ACESSOS_3B >= 30")],
+        "row_limit": 100, "max_bubble_size": "25", "logXAxis": False, "logYAxis": False,
+        "x_axis_format": "SMART_NUMBER", "y_axis_format": "SMART_NUMBER", "tooltipSizeFormat": "SMART_NUMBER",
+        "show_legend": True, "legendType": "scroll", "legendOrientation": "top", "color_scheme": "supersetColors",
+        "x_axis_title": "Δ uso % — direita = usando mais", "y_axis_title": "Δ conserto pp — baixo = menos problema",
+        "x_axis_title_margin": 30, "y_axis_title_margin": 30, "truncateXAxis": False, "extra_form_data": {}}),
+    "mov_err1k": ("Maturidade · Erros por 1.000 acessos · por semana", MOV_ID,
+                  ts("echarts_timeseries_line", "SEMANA_TS", [m("AVG(ERROS_POR_1K)", "Erros / 1.000 acessos (3 sem)")], ["APP_LABEL"], "P1W",
+                     {"markerEnabled": True, "markerSize": 4, "y_axis_format": ",.1f", "zoomable": True},
+                     filters=[sqlf("ERROS_POR_1K IS NOT NULL")])),
     "mov_fix1k": ("Maturidade · Correções por 1.000 acessos · por semana", MOV_ID,
                   ts("echarts_timeseries_line", "SEMANA_TS", [m("AVG(FIX_POR_1K)", "Correções / 1.000 acessos (3 sem)")], ["APP_LABEL"], "P1W",
                      {"markerEnabled": True, "markerSize": 4, "y_axis_format": ",.1f", "zoomable": True},
@@ -231,6 +250,25 @@ charts = {
         col_cfg={"PRS_90D": INT, "FIX_90D": INT, "FEAT_90D": INT, "PRS_6SEM": INT, "ACESSOS_90D": INT, "ACESSOS_6SEM": INT,
                  "CLIENTES_90D": INT, "ERROS_30D": INT, "PRS_POR_1K": DEC, "FIX_POR_1K": DEC, "ERROS_POR_1K": DEC},
         fmt=FMT_SIT)),
+    "estaveis": ("Maturidade · Estabilizados · usados, com pouco conserto e pouca modificação", PLA_ID, table_raw(
+        ["APP_LABEL", "ACESSOS_90D", "CLIENTES_90D", "PRS_6SEM", "PRS_DELTA_PCT", "FIX_PCT_6SEM", "FIX_POR_1K", "ERROS_POR_1K", "TESTE_PCT"], "ACESSOS_90D",
+        filters=[sqlf("SITUACAO = 'Estabilizado'")], col_cfg={"ACESSOS_90D": INT, "PRS_6SEM": INT, "FIX_POR_1K": DEC, "ERROS_POR_1K": DEC})),
+    "mov_vol": ("Maturidade · Volume de modificação · PRs por semana (3 sem), por app", MOV_ID,
+                ts("echarts_timeseries_line", "SEMANA_TS", [m("AVG(PRS_3SEM)", "PRs (3 sem)")], ["APP_LABEL"], "P1W",
+                   {"markerEnabled": True, "markerSize": 4, "y_axis_format": ",d", "zoomable": True})),
+    "atencao": ("Maturidade · Atenção · muito uso com muito erro, ou erro subindo", PLA_ID, table_raw(
+        ["APP_LABEL", "ACESSOS_90D", "FIX_PCT_6SEM", "FIX_DELTA_PP", "ERROS_30D", "ERROS_POR_1K", "ERROS_3B", "ERROS_3A", "ERROS_DELTA_PCT", "PRS_6SEM"], "ERROS_POR_1K",
+        filters=[sqlf("SITUACAO = 'Atenção'")], col_cfg={"ACESSOS_90D": INT, "ERROS_30D": INT, "ERROS_3B": INT, "ERROS_3A": INT, "PRS_6SEM": INT, "ERROS_POR_1K": DEC},
+        fmt=[{"colorScheme": "#E04355", "column": "ERROS_DELTA_PCT", "operator": ">", "targetValue": 50},
+             {"colorScheme": "#E04355", "column": "FIX_DELTA_PP", "operator": ">", "targetValue": 5}])),
+    "retrabalho": ("Maturidade · Retrabalho · arquivos corrigidos 2+ vezes em 6 semanas", REW_ID, table_raw(
+        ["APP_LABEL", "PATH", "N_FIXES", "PRIMEIRO_FIX", "ULTIMO_FIX", "PRS"], "N_FIXES", col_cfg={"N_FIXES": INT}, row_limit=100)),
+    "clientes_sem": ("Maturidade · Clientes ativos por semana · por app (prod)", USO_ID,
+                     ts("echarts_timeseries_line", "SEMANA_TS", [m("MAX(CLIENTES)", "Clientes")], ["APP_LABEL"], "P1W",
+                        {"markerEnabled": True, "markerSize": 4, "y_axis_format": ",d"}, filters=[PROD])),
+    "testes_app": ("Maturidade · PRs com teste · por app (90d)", PLA_ID,
+                   hbar("APP_LABEL", m("MAX(TESTE_PCT)", "PRs com teste %"), [sqlf("PRS_90D >= 4")], "ULTIMO_ACESSO",
+                        extra={"y_axis_format": ",d"})),
     "situacao": ("Maturidade · Apps por situação", PLA_ID, {
         "viz_type": "pie", "groupby": ["SITUACAO"], "metric": m("COUNT(*)", "Apps"),
         "adhoc_filters": [sqlf("SITUACAO NOT IN ('Inativo')")], "row_limit": 20, "donut": True, "show_labels": True,
@@ -318,7 +356,7 @@ Três fontes, um vocabulário de app: **entrega** (PRs mergeados na `stage`, cla
 
 - **Razão de conserto** = `fix ÷ (fix + feat)`. Só `feat`/`fix`/`perf`/`refactor` contam como entrega; `docs`/`ci`/`test`/`chore` ficam fora. Nas janelas curtas ela é **amortecida**: `(fix + 6·p₀) ÷ (n + 6)`, com p₀ = razão do app em 90 dias — com 2 PRs a razão bruta só pode ser 0, 50 ou 100%.
 - **PRs / correções / erros por 1.000 acessos** normalizam o esforço e a dor pelo uso: um app com 130 correções e 13 mil acessos é mais saudável que um com 10 correções e 80 acessos.
-- **Situação** (placar): *Atenção* = uso alto (≥400 acessos/90d) com conserto >62% ou subindo ≥8 pp · *Sob pressão* = ≥20 PRs e conserto >62% · *Esforço sem retorno* = >100 PRs por 1.000 acessos em app com <300 acessos · *Estabilizado* = uso alto, ≤12 correções por 1.000 acessos e ≤15 PRs em 6 semanas · *Em construção* = conserto ≤45% · *Sem uso* = PRs sem nenhum acesso em produção.
+- **Situação** (placar): *Atenção* = uso alto (≥400 acessos/90d) com conserto >62%, ou subindo ≥8 pp, ou ≥20 erros por 1.000 acessos, ou erros crescendo ≥50% (3 semanas vs 3 anteriores) · *Sob pressão* = ≥20 PRs e conserto >62% · *Esforço sem retorno* = >100 PRs por 1.000 acessos em app com <300 acessos · *Estabilizado* = uso alto, ≤12 correções por 1.000 acessos e ≤15 PRs em 6 semanas · *Em construção* = conserto ≤45% · *Sem uso* = PRs sem nenhum acesso em produção.
 - **Pontos cegos**: tela servida do cache não gera `QUERY_TAG` (ausência ≠ não uso); o usuário final ainda não está no tag das telas (acesso conta por cliente); eventos do Sentry sem `transaction` aparecem como *~sem-atribuicao* até a tag `app` estar no ar (gráfico "Ponto cego do Sentry"); PR com título fora do padrão é atribuído pelo caminho de arquivo (`APP_FONTE = arquivos`).
 """
 
@@ -327,15 +365,21 @@ add_header("Visão geral · últimos 7 dias")
 add_row([("chart", "kpi_prs", 3, 30), ("chart", "kpi_fix", 3, 30), ("chart", "kpi_uso", 3, 30), ("chart", "kpi_erros", 3, 30)])
 add_header("1 · Onde vai o esforço, e o uso justifica?")
 add_row([("chart", "esforco_app", 4, 70), ("chart", "esforco_tipo", 4, 70), ("chart", "bolhas", 4, 70)])
-add_row([("chart", "prs_por_1k", 8, 60), ("chart", "sem_uso", 4, 60)])
+add_row([("chart", "prs_por_1k", 5, 60), ("chart", "linhas_app", 3, 60), ("chart", "sem_uso", 4, 60)])
 add_header("2 · O esforço está surtindo efeito?")
-add_row([("chart", "mov_fix", 6, 60), ("chart", "mov_uso", 6, 60)])
-add_row([("chart", "tendencia", 8, 60), ("chart", "mov_fix1k", 4, 60)])
-add_header("3 e 4 · Quem está estabilizado, quem pede atenção")
+add_row([("chart", "melhorando", 6, 65), ("chart", "tendencia", 6, 65)])
+add_row([("chart", "mov_fix", 6, 55), ("chart", "mov_uso", 6, 55)])
+add_row([("chart", "mov_fix1k", 6, 50), ("chart", "mov_err1k", 6, 50)])
+add_header("3 · Quem está estabilizado (usado, pouco conserto, pouca modificação)")
+add_row([("chart", "estaveis", 7, 50), ("chart", "mov_vol", 5, 50)])
+add_row([("chart", "fix1k", 6, 60), ("chart", "clientes_sem", 6, 60)])
+add_header("4 · Quem pede atenção (muito uso com muito erro, ou erro subindo)")
+add_row([("chart", "atencao", 12, 50)])
+add_row([("chart", "err1k", 4, 60), ("chart", "erros_sem", 4, 60), ("chart", "retrabalho", 4, 60)])
+add_header("Placar completo")
 add_row([("chart", "placar", 9, 75), ("chart", "situacao", 3, 75)])
-add_row([("chart", "fix1k", 4, 65), ("chart", "err1k", 4, 65), ("chart", "erros_sem", 4, 65)])
 add_header("Qualidade do dado")
-add_row([("chart", "titulo_fonte", 6, 50), ("chart", "erros_fonte", 6, 50)])
+add_row([("chart", "titulo_fonte", 4, 50), ("chart", "erros_fonte", 4, 50), ("chart", "testes_app", 4, 50)])
 add_row([("chart", "prs_lista", 12, 60)])
 
 
@@ -353,7 +397,7 @@ def nf(fid, name, column, targets, scope_ids, ftype="filter_select"):
             "description": "", "chartsInScope": scope_ids, "tabsInScope": []}
 
 
-ALL_DS = [PRS_ID, USO_ID, SEN_ID, PLA_ID, MOV_ID]
+ALL_DS = [PRS_ID, USO_ID, SEN_ID, PLA_ID, MOV_ID, REW_ID]
 todos = [cid for cid in chart_ids.values()]
 temporais = scope(PRS_ID) + scope(USO_ID) + scope(SEN_ID) + scope(MOV_ID)
 meta = {"color_scheme": "supersetColors", "refresh_frequency": 0, "expanded_slices": {}, "label_colors": {},
