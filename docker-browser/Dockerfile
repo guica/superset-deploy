@@ -49,4 +49,42 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /root/.cache/*; \
     /app/.venv/bin/python -c "import playwright; print('playwright ok')"
 
+# Backport do fix upstream apache/superset#41051 (commit a529945d3b, issue
+# #40996) — "commit permalink before Playwright navigation". Não está na 6.1.0.
+#
+# Report de dashboard com `extra.dashboard` (ALERT_REPORT_TABS) tira o print de
+# um permalink. O worker cria a linha em key_value dentro da transação externa
+# do report, só com flush — o @transaction do CreateDashboardPermalinkCommand
+# vê g.in_transaction e não comita. O Chromium abre o permalink pelo container
+# web (outra conexão), não enxerga a linha, recebe 404 "permalink state not
+# found" e o report morre em `waiting for locator(".standalone")` depois de
+# SCREENSHOT_PLAYWRIGHT_DEFAULT_TIMEOUT. Só acontece na PRIMEIRA execução de
+# cada estado (report novo, ou abas/filtros alterados): nas seguintes a chave
+# determinística acha a linha já comitada. Foi o que derrubou o 66 (03/09), o
+# 67 (04/09) e o 65 (09/09).
+#
+# O patch comita logo depois de criar o permalink, igual ao upstream. Se a
+# imagem base já trouxer o fix, pula; se o trecho mudou, o build FALHA de
+# propósito — revisar antes de subir de versão.
+RUN /app/.venv/bin/python - <<'PY'
+import pathlib
+p = pathlib.Path("/app/superset/commands/report/execute.py")
+src = p.read_text()
+start = src.index("    def _get_tab_url(")
+end = src.index("\n    def ", start + 1)
+if "db.session.commit()" in src[start:end]:
+    print("execute.py já comita o permalink em _get_tab_url; patch pulado")
+else:
+    old = (
+        "        permalink_key = CreateDashboardPermalinkCommand(\n"
+        "            dashboard_id=str(self._report_schedule.dashboard.uuid),\n"
+        "            state=dashboard_state,\n"
+        "        ).run()\n"
+    )
+    assert src.count(old) == 1, "trecho de _get_tab_url mudou: revisar o backport do #40996"
+    new = old + "        db.session.commit()  # backport apache/superset#41051\n"
+    p.write_text(src.replace(old, new))
+    print("execute.py: backport do #41051 aplicado")
+PY
+
 USER superset

@@ -123,10 +123,13 @@ SCREENSHOT_PLAYWRIGHT_WAIT_EVENT = "networkidle"
 # print) — MAS a espera seguinte, `element.wait_for()` do seletor .standalone,
 # estoura de verdade e derruba o report ("Failed taking a screenshot").
 #
-# 60s nao bastava para o dashboard uso-humano (20 charts, ~5,3k px de altura:
-# cai no caminho de screenshot em tiles) com force_screenshot ligado, que
-# re-executa as 20 queries. Medido em 03/09/2026: 3 tentativas manuais, 2
-# estouraram em 60s. 150s cobre o pior caso observado com folga.
+# Subido de 60s para 150s em 03/09/2026 achando que o uso-humano era lento. A
+# falha era outra: na 1a execucao de cada estado de permalink (report com
+# extra.dashboard + ALERT_REPORT_TABS) o worker ainda nao tinha comitado o
+# permalink, o web respondia 404 e o .standalone nunca aparecia — com qualquer
+# timeout. Corrigido na imagem do worker (docker-browser/Dockerfile, backport
+# do apache/superset#41051). Os 150s ficam como folga: com force_screenshot as
+# queries do CUSTOMER_DB chegaram a 40-46s logo apos o boot da EC2 (09-10/09).
 #
 # Nao conflita com o limite do Celery: para reports AGENDADOS o scheduler
 # (tasks/scheduler.py) define soft_time_limit = working_timeout + 1 = 3601s por
