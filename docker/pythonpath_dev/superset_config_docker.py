@@ -291,3 +291,24 @@ DISTRIBUTED_COORDINATION_CONFIG = {
 # Aumentar log level se precisar debugar
 # import logging
 # LOG_LEVEL = logging.DEBUG
+
+# =========================================================================
+# TIMEOUT DE QUERY DOS GRÁFICOS
+# =========================================================================
+# Teto único de todo gráfico (Explore e dashboard): o front usa este valor como
+# timeout da chamada /api/v1/chart/data — ver superset-frontend chartAction.js
+# (queryTimeout) e Chart.jsx. Ele chega ao browser pelo bootstrap payload
+# (FRONTEND_CONF_KEYS em superset/views/base.py), então basta reiniciar o web,
+# sem rebuild de frontend. Não existe ajuste por gráfico: é global.
+#
+# Default do upstream = 60s. Subido para 300s (5 min) em 16/09/2026 porque
+# consultas pesadas do Snowflake estouravam antes de voltar.
+#
+# A cadeia inteira precisa acompanhar, do mais curto para o mais longo:
+#   front (este setting, 300s) < nginx proxy_*_timeout (360s, conf/nginx/superset.conf)
+# O servidor web é o `flask run` do docker-bootstrap.sh (`app`), que não tem
+# timeout de request próprio — se um dia virar gunicorn (`app-gunicorn`), subir
+# junto GUNICORN_TIMEOUT, que default para 60s em docker/entrypoints/run-server.sh.
+#
+# Não mexe no SQL Lab: lá valem SQLLAB_TIMEOUT / SQLLAB_ASYNC_TIME_LIMIT_SEC.
+SUPERSET_WEBSERVER_TIMEOUT = int(os.getenv("SUPERSET_WEBSERVER_TIMEOUT", "300"))
