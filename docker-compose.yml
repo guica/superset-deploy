@@ -91,8 +91,32 @@ services:
       - path: docker/.env-local
         required: false
     image: *superset-image
-    command: ["/app/docker/docker-bootstrap.sh", "app"]
+    # `app` sobe o servidor de DESENVOLVIMENTO do Flask (werkzeug) com --reload e
+    # --debugger; `app-gunicorn` chama /usr/bin/run-server.sh, que é o gunicorn.
+    # Trocado em 21/09/2026 — ver bloco `environment` abaixo para o dimensionamento.
+    command: ["/app/docker/docker-bootstrap.sh", "app-gunicorn"]
     restart: unless-stopped
+    # Parâmetros do gunicorn. Todos são lidos por /usr/bin/run-server.sh (na
+    # imagem oficial) e ficam aqui, e não em docker/.env-local, porque não são
+    # segredo e o dimensionamento tem que andar versionado junto do compose.
+    environment:
+      # EC2 de 2 vCPU / 3,8 GB dividida com worker do Celery, Postgres, Redis e
+      # nginx. O processo web sozinho já usava ~575 MB no flask, e cada worker do
+      # gunicorn custa outro tanto: 2 workers é o teto seguro aqui. A concorrência
+      # real vem das threads (gthread), que é o que importa para uma carga que
+      # passa o tempo esperando o Snowflake responder.
+      SERVER_WORKER_AMOUNT: "2"
+      SERVER_THREADS_AMOUNT: "20"
+      # Cadeia de timeout, do mais curto para o mais longo:
+      #   front 300s (SUPERSET_WEBSERVER_TIMEOUT) < gunicorn 330s < nginx 360s
+      # O default do run-server.sh é 60s e cortaria os gráficos de 5 min.
+      GUNICORN_TIMEOUT: "330"
+      # nginx mantém keepalive 100 para o upstream (conf/nginx/superset.conf);
+      # 2s do default derruba essas conexões cedo demais.
+      GUNICORN_KEEPALIVE: "5"
+      # WORKER_MAX_REQUESTS fica no default (0 = sem reciclagem) DE PROPÓSITO: o
+      # run-server.sh não expõe --graceful-timeout, que fica nos 30s do default,
+      # então reciclar worker mataria justamente a query de 5 min em andamento.
     expose:
       - 8088
     depends_on:
