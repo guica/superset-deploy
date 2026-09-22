@@ -287,6 +287,29 @@ Para diagnosticar um alerta que falhou, o metadata DB é Postgres: as tabelas s�
 
 ---
 
+## Alertas e reports no Microsoft Teams
+
+Não existe método "Teams" no Superset. O alerta/report usa o método **Webhook**
+(`ALERT_REPORT_WEBHOOK` ligado em `superset_config_docker.py`), e
+`docker/pythonpath_dev/teams_notification.py` intercepta a entrega: se a URL é de
+webhook do Teams (`*.powerplatform.com`, `*.logic.azure.com`, `*.webhook.office.com`),
+manda um Adaptive Card; qualquer outra URL segue pelo Webhook padrão do Superset.
+
+1. No canal do Teams: "…" → **Workflows** → **"Send webhook alerts to a channel"**.
+   Copiar a URL gerada. O fluxo pertence a quem o cria — se a pessoa sair, para.
+2. No alerta/report: adicionar método de notificação **Webhook** (junto do Email)
+   e colar a URL.
+
+O card leva título, descrição, a tabela dos alertas em formato TEXT (cortada para
+caber no teto de ~28 KB do Teams) e o botão "Abrir no Superset". **Anexos PNG/PDF/CSV
+não vão para o Teams** — o card avisa e quem precisa do arquivo segue no e-mail.
+
+A URL do Workflows carrega a assinatura (`sig=`): trate como segredo. Ela fica só
+no metadata DB (`report_recipient`); o log do worker registra apenas o host.
+Diagnóstico: `docker logs superset-superset-worker-1 | grep 'Teams webhook'`.
+
+---
+
 ## Licença
 
 Os arquivos derivados do Apache Superset mantêm a licença Apache 2.0 original.

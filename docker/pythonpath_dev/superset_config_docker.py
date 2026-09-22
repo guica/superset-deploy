@@ -162,7 +162,19 @@ SCREENSHOT_SELENIUM_ANIMATION_WAIT = 10
 # FEATURE_FLAGS["DATE_FORMAT_IN_EMAIL_SUBJECT"] = True
 
 # Lista de métodos de notificação disponíveis
-ALERT_REPORTS_NOTIFICATION_METHODS = ["Email"]
+ALERT_REPORTS_NOTIFICATION_METHODS = ["Email", "Webhook"]
+
+# Teams: o alerta/report usa o método "Webhook" com a URL de um Workflow do
+# Teams ("Send webhook alerts to a channel"). teams_notification.py detecta a
+# URL e manda Adaptive Card; outras URLs seguem pelo Webhook padrão.
+FEATURE_FLAGS["ALERT_REPORT_WEBHOOK"] = True
+ALERT_REPORTS_WEBHOOK_HTTPS_ONLY = True
+
+
+def FLASK_APP_MUTATOR(app):  # noqa: N802
+    from teams_notification import install
+
+    install()
 
 # Se quiser adicionar Slack no futuro, adicione suas configs aqui:
 # SLACK_API_TOKEN = os.getenv("SLACK_API_TOKEN", "")
