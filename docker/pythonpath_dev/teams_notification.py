@@ -185,6 +185,9 @@ def build_teams_message(
         "body": body,
     }
     if url:
+        # O Workflow aceita (202) mas nunca posta card com link http://.
+        if url.lower().startswith("http://"):
+            url = "https://" + url[len("http://") :]
         card["actions"] = [
             {"type": "Action.OpenUrl", "title": "Abrir no Superset", "url": url}
         ]

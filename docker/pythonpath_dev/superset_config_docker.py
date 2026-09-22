@@ -80,11 +80,12 @@ WEBDRIVER_BASEURL = os.getenv(
     "http://superset:8088/"
 )
 
-# URL base amigável (link que vai no email)
-# Usar o domínio público
+# URL base amigável (link que vai no email e no botão do card do Teams)
+# Usar o domínio público, em https: o Workflow do Teams descarta em silêncio
+# (responde 202 e não posta) card com Action.OpenUrl em http://.
 WEBDRIVER_BASEURL_USER_FRIENDLY = os.getenv(
     "WEBDRIVER_BASEURL_USER_FRIENDLY",
-    "http://dashboard.astecha.com.br/"
+    "https://dashboard.astecha.com.br/"
 )
 
 # Ignorado enquanto PLAYWRIGHT_REPORTS_AND_THUMBNAILS estiver True.

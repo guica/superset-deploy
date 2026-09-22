@@ -308,6 +308,12 @@ A URL do Workflows carrega a assinatura (`sig=`): trate como segredo. Ela fica s
 no metadata DB (`report_recipient`); o log do worker registra apenas o host.
 Diagnóstico: `docker logs superset-superset-worker-1 | grep 'Teams webhook'`.
 
+**202 não é entrega.** O Workflow responde 202 ao receber e só depois tenta postar;
+se o card for recusado, nada aparece no canal e o Superset não fica sabendo. Caso
+real: botão com link `http://` (vinha de `WEBDRIVER_BASEURL_USER_FRIENDLY`) — card
+descartado em silêncio. O adaptador força `https`; falhas desse tipo só aparecem no
+histórico de execução do Workflow (Teams → Workflows → o fluxo → Run history).
+
 ---
 
 ## Licença
