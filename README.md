@@ -314,6 +314,24 @@ real: botão com link `http://` (vinha de `WEBDRIVER_BASEURL_USER_FRIENDLY`) —
 descartado em silêncio. O adaptador força `https`; falhas desse tipo só aparecem no
 histórico de execução do Workflow (Teams → Workflows → o fluxo → Run history).
 
+### Alertas viram ticket no Cockpit (DEV-1821)
+
+O mesmo adaptador reconhece o destinatário Webhook
+`https://cockpit.astecha.com.br/api/interno/eventos/superset` e manda ao Cockpit um
+POST JSON (id e nome do alerta, tipo, descrição, link, `execution_id`, donos e até
+20 linhas da tabela). O Cockpit decide pelas regras de roteamento se abre ticket.
+O token vai em `Authorization: Bearer`, lido de `COCKPIT_EVENTOS_TOKEN` no
+`docker/.env` (sem ele o Cockpit recusa).
+
+Para pôr (ou tirar, `--remover`) esse destinatário em todos os alertas:
+`scripts/cockpit_destinatario_alertas.py`. Como prod é AUTH_OAUTH, o login de API
+com usuário de banco dá 401 — rode dentro do container, pelo ORM:
+
+```bash
+docker exec -i superset-superset-1 python - < scripts/cockpit_destinatario_alertas.py            # simula
+docker exec -i superset-superset-1 python - --aplicar < scripts/cockpit_destinatario_alertas.py  # grava
+```
+
 ---
 
 ## Licença
