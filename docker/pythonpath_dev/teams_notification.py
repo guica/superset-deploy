@@ -22,7 +22,15 @@ Anexos (PNG, PDF, CSV) nao vao para o Teams: o card via Workflows tem teto de
 precisa do anexo continua recebendo por e-mail no mesmo alerta.
 
 Instalado por FLASK_APP_MUTATOR em superset_config_docker.py.
+
+Cockpit (DEV-1821): uma URL `https://cockpit.astecha.com.br/api/interno/eventos/superset`
+no destinatario Webhook vira um evento JSON para o Astecha Cockpit, que abre
+(ou comenta) o ticket de suporte pelas regras da tela Suporte > Configuracao >
+Integracoes. O token vai no header, lido de COCKPIT_EVENTOS_TOKEN (docker/.env
+do servidor): a URL salva no alerta nao tem segredo nenhum.
 """
+
+import os
 
 import json
 import logging
@@ -46,6 +54,52 @@ MAX_TABLE_ROWS = 30
 MAX_TABLE_COLS = 8
 MAX_CELL_CHARS = 60
 MAX_TEXT_CHARS = 2_000
+
+
+COCKPIT_EVENTOS_PATH = "/api/interno/eventos/"
+MAX_COCKPIT_ROWS = 20
+
+
+def is_cockpit_url(url: str) -> bool:
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    return (host == "cockpit.astecha.com.br" or host.startswith("cockpit.")) and p.path.startswith(
+        COCKPIT_EVENTOS_PATH
+    )
+
+
+def _https(url: Optional[str]) -> Optional[str]:
+    if url and url.lower().startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return url
+
+
+def build_cockpit_payload(
+    report_id: Optional[int],
+    name: str,
+    header: dict,
+    url: Optional[str],
+    description: Optional[str],
+    embedded_data: Any = None,
+) -> dict:
+    """O evento que o Cockpit espera (cockpit.suporte.integracoes.normalizar)."""
+    linhas: list = []
+    if embedded_data is not None:
+        try:
+            df = embedded_data.head(MAX_COCKPIT_ROWS)
+            linhas = [{str(k): _cell(v) for k, v in r.items()} for r in df.to_dict(orient="records")]
+        except Exception:  # noqa: BLE001 - tabela e enfeite; o evento sai sem ela
+            logger.warning("Cockpit: nao consegui ler a tabela do alerta %s", report_id)
+    return {
+        "report_id": report_id,
+        "nome": name,
+        "tipo": header.get("notification_type") or "",
+        "descricao": description or "",
+        "url": _https(url),
+        "execution_id": str(header.get("execution_id") or ""),
+        "owners": [str(o) for o in (header.get("owners") or [])],
+        "linhas": linhas,
+    }
 
 
 def is_teams_url(url: str) -> bool:
@@ -239,9 +293,52 @@ def install() -> None:
     class TeamsAwareWebhookNotification(WebhookNotification):
         def send(self) -> None:
             wh_url = self._get_webhook_url()
+            if is_cockpit_url(wh_url):
+                return self._send_cockpit(wh_url)
             if not is_teams_url(wh_url):
                 return super().send()
             self._send_teams(wh_url)
+
+        @backoff.on_exception(
+            backoff.expo,
+            NotificationUnprocessableException,
+            factor=10,
+            base=2,
+            max_tries=3,
+        )
+        def _send_cockpit(self, wh_url: str) -> None:
+            token = os.environ.get("COCKPIT_EVENTOS_TOKEN", "")
+            if not token:
+                raise NotificationParamException(
+                    "Cockpit: COCKPIT_EVENTOS_TOKEN nao configurado no docker/.env."
+                )
+            c = self._content
+            payload = build_cockpit_payload(
+                report_id=getattr(self._recipient, "report_schedule_id", None),
+                name=c.name,
+                header=dict(c.header_data or {}),
+                url=c.url,
+                description=c.description,
+                embedded_data=c.embedded_data,
+            )
+            try:
+                response = requests.post(
+                    wh_url,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=20,
+                )
+            except requests.exceptions.RequestException as ex:
+                raise NotificationUnprocessableException(str(ex)) from ex
+            logger.info("Cockpit: evento do alerta %s, status %s", payload["report_id"], response.status_code)
+            if response.status_code >= 500 or response.status_code == 429:
+                raise NotificationUnprocessableException(
+                    f"Cockpit falhou ({response.status_code}): {response.text[:300]}"
+                )
+            if response.status_code >= 400:
+                raise NotificationParamException(
+                    f"Cockpit recusou ({response.status_code}): {response.text[:300]}"
+                )
 
         @backoff.on_exception(
             backoff.expo,
