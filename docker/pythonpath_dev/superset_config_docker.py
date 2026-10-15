@@ -325,3 +325,11 @@ DISTRIBUTED_COORDINATION_CONFIG = {
 #
 # Não mexe no SQL Lab: lá valem SQLLAB_TIMEOUT / SQLLAB_ASYNC_TIME_LIMIT_SEC.
 SUPERSET_WEBSERVER_TIMEOUT = int(os.getenv("SUPERSET_WEBSERVER_TIMEOUT", "300"))
+
+# =========================================================================
+# HUB DE CREDENCIAIS (DEV-2098)
+# =========================================================================
+# A chave Snowflake vem do cofre na hora de conectar, só nas conexões que
+# pedem (`connect_args.hub_segredo` nos Engine parameters). Ver
+# hub_credenciais.py. O worker (alertas e reports) usa o mesmo config.
+from hub_credenciais import mutator as DB_CONNECTION_MUTATOR  # noqa: E402,N812
